@@ -129,21 +129,34 @@ export function createInlineMathViewPlugin(
 				const numberFormat = getNumberFormat();
 				const preProcessors = getPreProcessors();
 
+				// Track which ranges we've already decorated to avoid duplicates
+				const decoratedRanges = new Set<string>();
+
 				for (const { from, to } of view.visibleRanges) {
+					// Try syntax tree approach first
 					syntaxTree(view.state).iterate({
 						from,
 						to,
 						enter: (node) => {
-							// Look for inline code nodes
-							// In Live Preview, this appears as "inline-code"
-							if (node.name === "inline-code") {
+							// Look for inline code nodes - try multiple possible node names
+							const isInlineCode = node.name === "inline-code" || 
+							                     node.name === "InlineCode" ||
+							                     node.type.name === "inline-code" ||
+							                     node.type.name === "InlineCode";
+							
+							if (isInlineCode) {
 								const text = view.state.doc.sliceString(node.from, node.to);
 								
 								// Check if this is a mathexpr inline expression
-								// The text includes backticks: `mathexpr: expression`
 								const match = text.match(/^`mathexpr:\s*(.+)`$/);
 								if (match) {
 									const expression = match[1].trim();
+									const rangeKey = `${node.from}-${node.to}`;
+									
+									// Skip if already decorated
+									if (decoratedRanges.has(rangeKey)) {
+										return;
+									}
 									
 									// Check if cursor is in this range - if so, don't decorate (allow editing)
 									if (cursorIntersectsRange(selection, node.from, node.to)) {
@@ -166,10 +179,56 @@ export function createInlineMathViewPlugin(
 											widget,
 										})
 									);
+									
+									decoratedRanges.add(rangeKey);
 								}
 							}
 						}
 					});
+					
+					// Fallback: regex-based search if syntax tree didn't find anything
+					// This helps in cases where the syntax tree structure is different
+					if (decoratedRanges.size === 0) {
+						const text = view.state.doc.sliceString(from, to);
+						const mathexprRegex = /`mathexpr:\s*([^`]+)`/g;
+						let match;
+						
+						while ((match = mathexprRegex.exec(text)) !== null) {
+							const matchStart = from + match.index;
+							const matchEnd = matchStart + match[0].length;
+							const expression = match[1].trim();
+							const rangeKey = `${matchStart}-${matchEnd}`;
+							
+							// Skip if already decorated
+							if (decoratedRanges.has(rangeKey)) {
+								continue;
+							}
+							
+							// Check if cursor is in this range - if so, don't decorate (allow editing)
+							if (cursorIntersectsRange(selection, matchStart, matchEnd)) {
+								continue;
+							}
+
+							// Create a widget to replace the inline code
+							const widget = new InlineMathWidget(
+								expression,
+								scope,
+								numberFormat,
+								preProcessors
+							);
+
+							// Replace the inline code with the widget
+							builder.add(
+								matchStart,
+								matchEnd,
+								Decoration.replace({
+									widget,
+								})
+							);
+							
+							decoratedRanges.add(rangeKey);
+						}
+					}
 				}
 
 				return builder.finish();

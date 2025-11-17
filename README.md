@@ -133,6 +133,9 @@ With tax (`mathexpr: $taxRate * 100`%), the total is `mathexpr: $price * $quanti
 This creates a natural flow where calculations appear inline with your text!
 
 
+![Example-Numerals-Inline](https://github.com/user-attachments/assets/4162c445-453d-4703-ba5c-02ae9bdbcdb0)
+
+
 ## Styling Options
 *Numerals* has been tested with the default theme and most other top themes. It uses default values such that it should play nice with any other theme. There are also several configurable settings to modify how *Numerals* renders math blocks
 

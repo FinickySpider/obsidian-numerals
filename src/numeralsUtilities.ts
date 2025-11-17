@@ -974,3 +974,75 @@ export function evaluateMathFromSourceStrings(
 	return { results, inputs, errorMsg, errorInput };
 }
 
+/**
+ * Process and render inline math expressions in the format `mathexpr: expression`.
+ * This function is designed to be called as a MarkdownPostProcessor to handle inline code elements.
+ * 
+ * @remarks
+ * Inline expressions are read-only - they can reference variables but cannot define new ones.
+ * Only page-global variables (stored in scopeCache) are accessible.
+ * Processing order is controlled via sortOrder parameter to ensure code blocks run first.
+ * 
+ * @param el - The container element to search for inline code elements
+ * @param ctx - The markdown post processor context
+ * @param scopeCache - Map of file paths to their global scopes
+ * @param numberFormat - Number formatting options for displaying results
+ * @param preProcessors - String replacement preprocessors (e.g., for currency symbols)
+ */
+export function processInlineMathExpressions(
+	el: HTMLElement,
+	ctx: MarkdownPostProcessorContext,
+	scopeCache: Map<string, NumeralsScope>,
+	numberFormat: mathjsFormat,
+	preProcessors: StringReplaceMap[]
+): void {
+	// Find all <code> elements within the container
+	const codeElements = el.querySelectorAll('code');
+	
+	codeElements.forEach((codeEl) => {
+		const text = codeEl.textContent || '';
+		
+		// Check if this is a mathexpr inline expression
+		const match = text.match(/^mathexpr:\s*(.+)$/);
+		if (!match) {
+			return; // Not a mathexpr inline code, skip it
+		}
+		
+		const expression = match[1].trim();
+		
+		// Get the scope for this file from the cache
+		const scope = scopeCache.get(ctx.sourcePath);
+		
+		try {
+			// Apply preprocessors to the expression
+			let processedExpression = expression;
+			if (preProcessors && preProcessors.length > 0) {
+				processedExpression = replaceStringsInTextFromMap(processedExpression, preProcessors);
+			}
+			
+			// Evaluate the expression using the page scope
+			const result = math.evaluate(processedExpression, scope || new NumeralsScope());
+			
+			// Format the result
+			const formattedResult = math.format(result, numberFormat);
+			
+			// Replace the code element with a span containing the result
+			const resultSpan = document.createElement('span');
+			resultSpan.classList.add('numerals-inline-result');
+			resultSpan.textContent = formattedResult;
+			
+			// Replace the code element with our result span
+			codeEl.replaceWith(resultSpan);
+			
+		} catch (error) {
+			// Display error inline
+			const errorSpan = document.createElement('span');
+			errorSpan.classList.add('numerals-inline-error');
+			errorSpan.textContent = `[Error: ${error.message || 'Invalid expression'}]`;
+			
+			// Replace the code element with our error span
+			codeEl.replaceWith(errorSpan);
+		}
+	});
+}
+

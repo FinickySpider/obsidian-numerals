@@ -11,8 +11,7 @@ import {
 	ViewUpdate,
 	WidgetType
 } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
-import { RangeSetBuilder } from "@codemirror/state";
+import { RangeSetBuilder, Extension } from "@codemirror/state";
 import * as math from 'mathjs';
 import { NumeralsScope, mathjsFormat, StringReplaceMap } from './numerals.types';
 import { replaceStringsInTextFromMap } from './numeralsUtilities';
@@ -33,6 +32,7 @@ class InlineMathWidget extends WidgetType {
 	toDOM(): HTMLElement {
 		const span = document.createElement('span');
 		span.classList.add('numerals-inline-result');
+		span.setAttribute('data-numerals-inline', 'true');
 
 		try {
 			// Apply preprocessors to the expression
@@ -58,18 +58,23 @@ class InlineMathWidget extends WidgetType {
 
 	// Prevent cursor from entering the widget
 	ignoreEvent(): boolean {
-		return true;
+		return false;
+	}
+
+	eq(other: InlineMathWidget): boolean {
+		return other.expression === this.expression;
 	}
 }
 
 /**
  * Creates a ViewPlugin for Live Preview mode inline math rendering
+ * Uses regex matching to find inline code with mathexpr pattern
  */
 export function createInlineMathViewPlugin(
 	getScopeForFile: (path: string) => NumeralsScope | undefined,
 	numberFormat: mathjsFormat,
 	preProcessors: StringReplaceMap[]
-) {
+): Extension {
 	return ViewPlugin.fromClass(
 		class {
 			decorations: DecorationSet;
@@ -79,7 +84,7 @@ export function createInlineMathViewPlugin(
 			}
 
 			update(update: ViewUpdate) {
-				if (update.docChanged || update.viewportChanged) {
+				if (update.docChanged || update.viewportChanged || update.selectionSet) {
 					this.decorations = this.buildDecorations(update.view);
 				}
 			}
@@ -87,63 +92,56 @@ export function createInlineMathViewPlugin(
 			buildDecorations(view: EditorView): DecorationSet {
 				const builder = new RangeSetBuilder<Decoration>();
 
-				for (const { from, to } of view.visibleRanges) {
-					syntaxTree(view.state).iterate({
-						from,
-						to,
-						enter: (node) => {
-							// Look for inline code nodes
-							if (node.name === "InlineCode") {
-								const text = view.state.doc.sliceString(node.from, node.to);
-								
-								// Match the pattern `mathexpr: expression`
-								// The text includes the backticks
-								const codeMatch = text.match(/^`(mathexpr:\s*(.+))`$/);
-								if (codeMatch) {
-									const expression = codeMatch[2].trim();
-									
-									// Get the file path - try to access from view state
-									let filePath = '';
-									try {
-										// @ts-ignore - Obsidian's internal API
-										const file = view.state.field?.editorLivePreviewField?.file;
-										if (file) {
-											filePath = file.path;
-										} else {
-											// Try alternative method
-											// @ts-ignore
-											const activeFile = view.state?.field?.stateField?.file;
-											if (activeFile) {
-												filePath = activeFile.path;
-											}
-										}
-									} catch (e) {
-										// Fallback - will work without file-specific scope
-									}
-									
-									// Get scope for this file
-									const scope = getScopeForFile(filePath);
-
-									// Create a widget to replace the inline code
-									const widget = new InlineMathWidget(
-										expression,
-										scope,
-										numberFormat,
-										preProcessors
-									);
-
-									// Replace the inline code with the widget
-									builder.add(
-										node.from,
-										node.to,
-										Decoration.replace({
-											widget,
-										})
-									);
-								}
-							}
+				// Get the file path from Obsidian's app
+				let filePath = '';
+				try {
+					// @ts-ignore - Access Obsidian's internal app structure
+					const app = (view as any).app || (window as any).app;
+					if (app && app.workspace) {
+						const activeFile = app.workspace.getActiveFile();
+						if (activeFile) {
+							filePath = activeFile.path;
 						}
-					});
+					}
+				} catch (e) {
+					// Fallback - will work without file-specific scope
+				}
+				
+				// Get scope for this file
+				const scope = getScopeForFile(filePath);
+
+				// Regex to match inline code with mathexpr pattern
+				const mathexprRegex = /`mathexpr:\s*([^`]+)`/g;
+
+				for (const { from, to } of view.visibleRanges) {
+					const text = view.state.doc.sliceString(from, to);
+					let match;
+					
+					// Find all mathexpr inline code in the visible range
+					while ((match = mathexprRegex.exec(text)) !== null) {
+						const matchStart = from + match.index;
+						const matchEnd = matchStart + match[0].length;
+						const expression = match[1].trim();
+
+						// Create a widget to replace the inline code
+						const widget = new InlineMathWidget(
+							expression,
+							scope,
+							numberFormat,
+							preProcessors
+						);
+
+						// Replace the inline code with the widget
+						builder.add(
+							matchStart,
+							matchEnd,
+							Decoration.replace({
+								widget,
+								inclusive: false,
+								block: false
+							})
+						);
+					}
 				}
 
 				return builder.finish();

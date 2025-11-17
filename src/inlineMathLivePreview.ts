@@ -1,6 +1,6 @@
 /**
  * Live Preview support for inline math expressions
- * Uses CodeMirror 6 ViewPlugin to render mathexpr inline code in editing mode
+ * Uses CodeMirror 6 ViewPlugin with proper mode detection and cursor handling
  */
 
 import {
@@ -11,13 +11,15 @@ import {
 	ViewUpdate,
 	WidgetType
 } from "@codemirror/view";
-import { RangeSetBuilder, Extension } from "@codemirror/state";
+import { RangeSetBuilder, Extension, EditorSelection } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
+import { editorLivePreviewField } from "obsidian";
 import * as math from 'mathjs';
 import { NumeralsScope, mathjsFormat, StringReplaceMap } from './numerals.types';
 import { replaceStringsInTextFromMap } from './numeralsUtilities';
 
 /**
- * Widget that replaces inline code with evaluated result in Live Preview
+ * Widget that displays the evaluated result
  */
 class InlineMathWidget extends WidgetType {
 	constructor(
@@ -32,7 +34,6 @@ class InlineMathWidget extends WidgetType {
 	toDOM(): HTMLElement {
 		const span = document.createElement('span');
 		span.classList.add('numerals-inline-result');
-		span.setAttribute('data-numerals-inline', 'true');
 
 		try {
 			// Apply preprocessors to the expression
@@ -56,19 +57,24 @@ class InlineMathWidget extends WidgetType {
 		return span;
 	}
 
-	// Prevent cursor from entering the widget
-	ignoreEvent(): boolean {
-		return false;
-	}
-
 	eq(other: InlineMathWidget): boolean {
 		return other.expression === this.expression;
 	}
 }
 
 /**
+ * Check if cursor is within a range
+ */
+function cursorIntersectsRange(selection: EditorSelection, from: number, to: number): boolean {
+	return selection.ranges.some(range => {
+		return (range.from <= to && range.to >= from);
+	});
+}
+
+/**
  * Creates a ViewPlugin for Live Preview mode inline math rendering
- * Uses regex matching to find inline code with mathexpr pattern
+ * Only renders in Live Preview mode, not in Source mode
+ * Hides decoration when cursor is over the inline code to allow editing
  */
 export function createInlineMathViewPlugin(
 	getScopeForFile: (path: string) => NumeralsScope | undefined,
@@ -90,7 +96,16 @@ export function createInlineMathViewPlugin(
 			}
 
 			buildDecorations(view: EditorView): DecorationSet {
+				// Check if we're in Live Preview mode
+				const isLivePreview = view.state.field(editorLivePreviewField);
+				
+				// If not in Live Preview mode (i.e., in Source mode), return no decorations
+				if (!isLivePreview) {
+					return Decoration.none;
+				}
+
 				const builder = new RangeSetBuilder<Decoration>();
+				const selection = view.state.selection;
 
 				// Get the file path from Obsidian's app
 				let filePath = '';
@@ -114,38 +129,47 @@ export function createInlineMathViewPlugin(
 				const numberFormat = getNumberFormat();
 				const preProcessors = getPreProcessors();
 
-				// Regex to match inline code with mathexpr pattern
-				const mathexprRegex = /`mathexpr:\s*([^`]+)`/g;
-
 				for (const { from, to } of view.visibleRanges) {
-					const text = view.state.doc.sliceString(from, to);
-					let match;
-					
-					// Find all mathexpr inline code in the visible range
-					while ((match = mathexprRegex.exec(text)) !== null) {
-						const matchStart = from + match.index;
-						const matchEnd = matchStart + match[0].length;
-						const expression = match[1].trim();
+					syntaxTree(view.state).iterate({
+						from,
+						to,
+						enter: (node) => {
+							// Look for inline code nodes
+							// In Live Preview, this appears as "inline-code"
+							if (node.name === "inline-code") {
+								const text = view.state.doc.sliceString(node.from, node.to);
+								
+								// Check if this is a mathexpr inline expression
+								// The text includes backticks: `mathexpr: expression`
+								const match = text.match(/^`mathexpr:\s*(.+)`$/);
+								if (match) {
+									const expression = match[1].trim();
+									
+									// Check if cursor is in this range - if so, don't decorate (allow editing)
+									if (cursorIntersectsRange(selection, node.from, node.to)) {
+										return;
+									}
 
-						// Create a widget to replace the inline code
-						const widget = new InlineMathWidget(
-							expression,
-							scope,
-							numberFormat,
-							preProcessors
-						);
+									// Create a widget to replace the inline code
+									const widget = new InlineMathWidget(
+										expression,
+										scope,
+										numberFormat,
+										preProcessors
+									);
 
-						// Replace the inline code with the widget
-						builder.add(
-							matchStart,
-							matchEnd,
-							Decoration.replace({
-								widget,
-								inclusive: false,
-								block: false
-							})
-						);
-					}
+									// Replace the inline code with the widget
+									builder.add(
+										node.from,
+										node.to,
+										Decoration.replace({
+											widget,
+										})
+									);
+								}
+							}
+						}
+					});
 				}
 
 				return builder.finish();

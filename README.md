@@ -73,6 +73,8 @@ To get started, simply install and enable the plugin. Add a `math` code block wi
 
 Numerals now supports inline math expressions using the `` `mathexpr:` `` syntax. This allows you to display calculated results directly in your text without needing a full code block.
 
+> **📖 Important**: Inline math expressions currently work in **Reading Mode** only (Ctrl/Cmd+E to preview). They do not yet render in Live Preview (editing) mode. This is a limitation of the current MVP implementation.
+
 ### Basic Usage
 
 You can use inline expressions for simple calculations:
@@ -81,7 +83,13 @@ You can use inline expressions for simple calculations:
 The total cost is `mathexpr: 3 * 4` dollars.
 ```
 
-This will render as: The total cost is 12 dollars.
+This will render as: **The total cost is 12 dollars** (in Reading Mode).
+
+### How to Use
+
+1. Write your note with inline expressions using the `` `mathexpr:` `` syntax
+2. Switch to **Reading Mode** by pressing `Ctrl+E` (Windows/Linux) or `Cmd+E` (Mac)
+3. The expressions will be evaluated and displayed as results
 
 ### Variable References
 
@@ -112,6 +120,7 @@ Inline expressions support all the same features as math blocks:
 - Inline expressions are **read-only** - they display results but cannot define new variables
 - Only **page-global variables** (with `$` prefix) are accessible from inline expressions
 - Local variables defined in math blocks without `$` prefix are not accessible
+- **Currently works in Reading Mode only** - Live Preview support is planned for a future update
 
 ### Example Workflow
 

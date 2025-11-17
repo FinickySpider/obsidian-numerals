@@ -72,8 +72,8 @@ class InlineMathWidget extends WidgetType {
  */
 export function createInlineMathViewPlugin(
 	getScopeForFile: (path: string) => NumeralsScope | undefined,
-	numberFormat: mathjsFormat,
-	preProcessors: StringReplaceMap[]
+	getNumberFormat: () => mathjsFormat,
+	getPreProcessors: () => StringReplaceMap[]
 ): Extension {
 	return ViewPlugin.fromClass(
 		class {
@@ -109,6 +109,10 @@ export function createInlineMathViewPlugin(
 				
 				// Get scope for this file
 				const scope = getScopeForFile(filePath);
+				
+				// Get current format and preprocessors
+				const numberFormat = getNumberFormat();
+				const preProcessors = getPreProcessors();
 
 				// Regex to match inline code with mathexpr pattern
 				const mathexprRegex = /`mathexpr:\s*([^`]+)`/g;

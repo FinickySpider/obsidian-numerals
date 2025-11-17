@@ -270,8 +270,8 @@ export default class NumeralsPlugin extends Plugin {
 		this.registerEditorExtension(
 			createInlineMathViewPlugin(
 				(path: string) => this.scopeCache.get(path),
-				this.numberFormat,
-				this.preProcessors
+				() => this.numberFormat,
+				() => this.preProcessors
 			)
 		); 
 
